@@ -1,7 +1,6 @@
-#include <linux/bpf.h>
+#include <vmlinux.h>
+#include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
-#include <stddef.h>
-#include <stdint.h>
 
 /* This is the data record stored in the map */
 struct datarec {

@@ -15,12 +15,19 @@ LIBLOG_SRC := $(abspath ../../libs/liblog/src/log.c)
 LIBLOG_HDR := $(abspath ../../libs/liblog/src/)
 BPFTOOL_OUTPUT ?= $(abspath $(OUTPUT)/bpftool)
 BPFTOOL ?= $(BPFTOOL_OUTPUT)/bootstrap/bpftool
-ARCH := $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/' | sed 's/ppc64le/powerpc/' | sed 's/mips.*/mips/')
+ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' \
+			 | sed 's/arm.*/arm/' \
+			 | sed 's/aarch64/arm64/' \
+			 | sed 's/ppc64le/powerpc/' \
+			 | sed 's/mips.*/mips/' \
+			 | sed 's/riscv64/riscv/' \
+			 | sed 's/loongarch64/loongarch/')
+VMLINUX := ../../vmlinux/$(ARCH)/vmlinux.h
 # Use our own libbpf API headers and Linux UAPI headers distributed with
 # libbpf to avoid dependency on system-wide headers, which could be missing or
 # outdated
 # INCLUDES := -I$(OUTPUT) -I../libbpf/include/uapi -I$(OUTPUT)/libxdp/include -I$(LIBARGPARSE_SRC) -I$(dir $(VMLINUX))
-INCLUDES := -I$(OUTPUT) -I../../libs/libbpf/include/uapi -I$(LIBARGPARSE_SRC) -I$(LIBLOG_HDR)
+INCLUDES := -I$(OUTPUT) -I../../libs/libbpf/include/uapi -I$(dir $(VMLINUX)) -I$(LIBARGPARSE_SRC) -I$(LIBLOG_HDR)
 CFLAGS := -g -Wall -DLOG_USE_COLOR
 ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS)
 
@@ -66,13 +73,8 @@ all: $(APPS)
 .PHONY: clean
 clean:
 	$(call msg,CLEAN)
+	$(Q)$(foreach app,$(APPS),rm -rf $(OUTPUT)/$(app).skel.h $(OUTPUT)/$(app).bpf.o $(OUTPUT)/$(app).o;)
 	$(Q)rm -rf $(APPS)
-
-clean-app:
-	$(call msg,CLEAN-APP)
-	$(Q)rm -rf $(APPS)
-	$(Q)rm -rf $(OUTPUT)/*.skel.h
-	$(Q)rm -rf $(OUTPUT)/*.o
 
 $(OUTPUT) $(OUTPUT)/libbpf $(BPFTOOL_OUTPUT):
 	$(call msg,MKDIR,$@)
