@@ -1,18 +1,21 @@
 # SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
-OUTPUT := ../../.output
+OUTPUT := ../../../.output
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
 SHELL := /bin/bash
 PKG_CONFIG := pkg-config
-LIBBPF_SRC := $(abspath ../../libs/libbpf/src)
-BPFTOOL_SRC := $(abspath ../../libs/bpftool/src)
-LIBARGPARSE_SRC := $(abspath ../../libs/libargparse)
+LIBBPF_SRC := $(abspath ../../../libs/libbpf/src)
+BPFTOOL_SRC := $(abspath ../../../libs/bpftool/src)
+LIBARGPARSE_SRC := $(abspath ../../../libs/libargparse)
 LIBBPF_OBJ := $(abspath $(OUTPUT)/libbpf.a)
 LIBBPF_PKGCONFIG := $(abspath $(OUTPUT)/pkgconfig)
-LIBARGPARSE_OBJ := $(abspath ../../libs/libargparse/libargparse.a)
+LIBARGPARSE_OBJ := $(abspath ../../../libs/libargparse/libargparse.a)
 LIBLOG_OBJ := $(abspath $(OUTPUT)/liblog.o)
-LIBLOG_SRC := $(abspath ../../libs/liblog/src/log.c)
-LIBLOG_HDR := $(abspath ../../libs/liblog/src/)
+LIBLOG_SRC := $(abspath ../../../libs/liblog/src/log.c)
+LIBLOG_HDR := $(abspath ../../../libs/liblog/src/)
+LIBCYAML_SRC := $(abspath ../../../libs/libcyaml)
+LIBCYAML_OBJ := $(abspath $(OUTPUT)/libcyaml.a)
+LIBCYAML_DST := $(abspath $(OUTPUT))
 BPFTOOL_OUTPUT ?= $(abspath $(OUTPUT)/bpftool)
 BPFTOOL ?= $(BPFTOOL_OUTPUT)/bootstrap/bpftool
 ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' \
@@ -22,18 +25,28 @@ ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' \
 			 | sed 's/mips.*/mips/' \
 			 | sed 's/riscv64/riscv/' \
 			 | sed 's/loongarch64/loongarch/')
-VMLINUX := ../../vmlinux/$(ARCH)/vmlinux.h
+VMLINUX := ../../../vmlinux/$(ARCH)/vmlinux.h
 # Use our own libbpf API headers and Linux UAPI headers distributed with
 # libbpf to avoid dependency on system-wide headers, which could be missing or
 # outdated
 # INCLUDES := -I$(OUTPUT) -I../libbpf/include/uapi -I$(OUTPUT)/libxdp/include -I$(LIBARGPARSE_SRC) -I$(dir $(VMLINUX))
-INCLUDES := -I$(OUTPUT) -I../../libs/libbpf/include/uapi -I$(dir $(VMLINUX)) -I$(LIBARGPARSE_SRC) -I$(LIBLOG_HDR)
+INCLUDES := -I$(OUTPUT) -I../../../libs/libbpf/include/uapi -I$(dir $(VMLINUX)) -I$(LIBARGPARSE_SRC) -I$(LIBLOG_HDR)
 CFLAGS := -g -Wall -DLOG_USE_COLOR
-ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS)
+ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS) 
 
-APPS = simple_drop
+#LOG_DISABLED (0)
+#LOG_ERR (1)
+#LOG_WARNING (2)
+#LOG_NOTICE (3)
+#LOG_INFO (4)
+#LOG_DEBUG (5)
+BPF_LOG_LEVEL ?= 0
 
-ALL_LDFLAGS += -lrt -ldl -lpthread -lm
+BPF_CFLAGS ?= -DBPF_LOG_LEVEL=$(BPF_LOG_LEVEL)
+
+APPS = tc_fib_lookup
+
+ALL_LDFLAGS += -lrt -ldl -lpthread -lm $(LIBCYAML_OBJ) -lyaml
 
 # Get Clang's default includes on this system. We'll explicitly add these dirs
 # to the includes list when compiling with `-target bpf` because otherwise some
@@ -93,7 +106,7 @@ $(BPFTOOL): | $(BPFTOOL_OUTPUT)
 	$(call msg,BPFTOOL,$@)
 	$(Q)$(MAKE) ARCH= CROSS_COMPILE= OUTPUT=$(BPFTOOL_OUTPUT)/ -C $(BPFTOOL_SRC) bootstrap
 
-# Build bpftool
+# Build libargparse
 $(LIBARGPARSE_OBJ):
 	$(call msg,LIBARGPARSE,$@)
 	$(Q)$(MAKE) -C $(LIBARGPARSE_SRC)
@@ -103,15 +116,20 @@ $(LIBLOG_OBJ):
 	$(call msg,LIBLOG,$@)
 	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $(LIBLOG_SRC) -o $@
 
+# Build libcyaml
+$(LIBCYAML_OBJ):
+	$(call msg,LIBCYAML,$@)
+	$(Q)$(MAKE) clean -C $(LIBCYAML_SRC)
+	$(Q)$(MAKE) install -C $(LIBCYAML_SRC) PREFIX=$(LIBCYAML_DST) \
+										   LIBDIR= \
+	                                       INCLUDEDIR= \
+	                                       VARIANT=release
+
 # Build BPF code
 $(OUTPUT)/%.bpf.o: ebpf/%.bpf.c $(LIBBPF_OBJ) $(wildcard ebpf/%.h) $(VMLINUX) | $(OUTPUT)
 	$(call msg,BPF,$@)
-	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) -c $(filter %.c,$^) -o $@
+	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES) $(BPF_CFLAGS) $(CLANG_BPF_SYS_INCLUDES) -c $(filter %.c,$^) -o $@
 	$(Q)$(LLVM_STRIP) -g $@ # strip useless DWARF info
-
-$(OUTPUT)/%.bpf.ll: ebpf/%.bpf.c $(LIBBPF_OBJ) $(wildcard ebpf/%.h) $(VMLINUX) | $(OUTPUT)
-	$(call msg,BPF-BC,$@)
-	$(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) -emit-llvm -S -c $(filter %.c,$^) -o $@
 
 # Generate BPF skeletons
 $(OUTPUT)/%.skel.h: $(OUTPUT)/%.bpf.o | $(OUTPUT) $(BPFTOOL)
@@ -126,12 +144,12 @@ $(OUTPUT)/%.o: %.c $(wildcard %.h) | $(OUTPUT)
 	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $(filter %.c,$^) -o $@
 
 # Build application binary
-$(APPS): %: $(OUTPUT)/%.o $(LIBBPF_OBJ) $(LIBARGPARSE_OBJ) $(LIBLOG_OBJ) | $(OUTPUT)
+$(APPS): %: $(LIBCYAML_OBJ) $(OUTPUT)/%.o $(LIBBPF_OBJ) $(LIBCYAML_OBJ) $(LIBARGPARSE_OBJ) $(LIBLOG_OBJ) | $(OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
 format:
-	clang-format -style=file -i *.c *.h
+	clang-format -style=file -i *.c 
 	clang-format -style=file -i ebpf/*.c ebpf/*.h
 	@grep -n "TODO" *.[ch] || true
 
