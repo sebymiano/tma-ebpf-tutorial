@@ -151,6 +151,7 @@ $(APPS): %: $(LIBCYAML_OBJ) $(OUTPUT)/%.o $(LIBBPF_OBJ) $(LIBCYAML_OBJ) $(LIBARG
 format:
 	clang-format -style=file -i *.c *.h
 	clang-format -style=file -i ebpf/*.c ebpf/*.h
+	clang-format -style=file -i ebpf/solution/*.c
 	@grep -n "TODO" *.[ch] || true
 
 # delete failed targets

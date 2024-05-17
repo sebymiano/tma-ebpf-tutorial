@@ -36,26 +36,26 @@ struct blocklist_dsts {
 
 static const cyaml_schema_field_t ip_field_schema[] = {
     CYAML_FIELD_STRING_PTR("ip", CYAML_FLAG_POINTER, struct ip, ip, 0, CYAML_UNLIMITED),
-    CYAML_FIELD_END
-};
+    CYAML_FIELD_END};
 
 static const cyaml_schema_value_t ip_schema = {
-	CYAML_VALUE_MAPPING(CYAML_FLAG_DEFAULT, struct ip, ip_field_schema),
+    CYAML_VALUE_MAPPING(CYAML_FLAG_DEFAULT, struct ip, ip_field_schema),
 };
 
 static const cyaml_schema_field_t blocklist_dsts_field_schema[] = {
-    CYAML_FIELD_SEQUENCE("blocklist_dsts", CYAML_FLAG_POINTER, struct blocklist_dsts, ips, &ip_schema, 0, CYAML_UNLIMITED),
-    CYAML_FIELD_END
-};
+    CYAML_FIELD_SEQUENCE("blocklist_dsts", CYAML_FLAG_POINTER, struct blocklist_dsts,
+                         ips, &ip_schema, 0, CYAML_UNLIMITED),
+    CYAML_FIELD_END};
 
 static const cyaml_schema_value_t blocklist_dsts_schema = {
-    CYAML_VALUE_MAPPING(CYAML_FLAG_POINTER, struct blocklist_dsts, blocklist_dsts_field_schema),
+    CYAML_VALUE_MAPPING(CYAML_FLAG_POINTER, struct blocklist_dsts,
+                        blocklist_dsts_field_schema),
 };
 
 static const cyaml_config_t config = {
-	.log_fn = cyaml_log,            /* Use the default logging function. */
-	.mem_fn = cyaml_mem,            /* Use the default memory allocator. */
-	.log_level = CYAML_LOG_WARNING, /* Logging errors and warnings only. */
+    .log_fn = cyaml_log,            /* Use the default logging function. */
+    .mem_fn = cyaml_mem,            /* Use the default memory allocator. */
+    .log_level = CYAML_LOG_WARNING, /* Logging errors and warnings only. */
 };
 
 static void cleanup_ifaces() {
@@ -74,7 +74,8 @@ static void cleanup_ifaces() {
 int attach_bpf_progs(unsigned int xdp_flags, struct drop_ip_bpf *skel) {
     int err = 0;
     /* Attach the XDP program to the interface */
-    err = bpf_xdp_attach(ifindex_iface, bpf_program__fd(skel->progs.xdp_drop_by_ip), xdp_flags, NULL);
+    err = bpf_xdp_attach(ifindex_iface, bpf_program__fd(skel->progs.xdp_drop_by_ip),
+                         xdp_flags, NULL);
 
     if (err) {
         log_fatal("Error while attaching XDP program to the interface");
@@ -106,4 +107,4 @@ void sigint_handler(int sig_no) {
     exit(0);
 }
 
-#endif //DROP_IP_H_
+#endif // DROP_IP_H_

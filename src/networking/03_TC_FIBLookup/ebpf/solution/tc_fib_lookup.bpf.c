@@ -106,16 +106,15 @@ int tc_ingress(struct __sk_buff *ctx) {
 }
 
 SEC("tc")
-int tc_chk(struct __sk_buff *ctx)
-{
-	void *data_end = (void *)(__u64)ctx->data_end;
+int tc_chk(struct __sk_buff *ctx) {
+    void *data_end = (void *)(__u64)ctx->data_end;
     void *data = (void *)(__u64)ctx->data;
-	__u32 *raw = data;
+    __u32 *raw = data;
 
-	if (data + sizeof(struct ethhdr) > data_end)
-		return TC_ACT_SHOT;
+    if (data + sizeof(struct ethhdr) > data_end)
+        return TC_ACT_SHOT;
 
-	return !raw[0] && !raw[1] && !raw[2] ? TC_ACT_SHOT : TC_ACT_OK;
+    return !raw[0] && !raw[1] && !raw[2] ? TC_ACT_SHOT : TC_ACT_OK;
 }
 
 char __license[] SEC("license") = "GPL";

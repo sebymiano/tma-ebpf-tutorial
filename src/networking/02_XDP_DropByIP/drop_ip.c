@@ -37,7 +37,8 @@ static const char *const usages[] = {
     NULL,
 };
 
-static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args) {
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
+                           va_list args) {
     return vfprintf(stderr, format, args);
 }
 
@@ -47,11 +48,12 @@ int load_maps_config(const char *config_file, struct drop_ip_bpf *skel) {
     int ret = EXIT_SUCCESS;
 
     /* Load input file. */
-	err = cyaml_load_file(config_file, &config, &blocklist_dsts_schema, (void **) &ips, NULL);
-	if (err != CYAML_OK) {
-		fprintf(stderr, "ERROR: %s\n", cyaml_strerror(err));
-		return EXIT_FAILURE;
-	}
+    err = cyaml_load_file(config_file, &config, &blocklist_dsts_schema, (void **)&ips,
+                          NULL);
+    if (err != CYAML_OK) {
+        fprintf(stderr, "ERROR: %s\n", cyaml_strerror(err));
+        return EXIT_FAILURE;
+    }
 
     log_info("Loaded %d IPs", ips->ips_count);
 
@@ -88,13 +90,13 @@ int load_maps_config(const char *config_file, struct drop_ip_bpf *skel) {
         if (ret != 0) {
             log_error("Failed to update BPF map: %s", strerror(errno));
             ret = EXIT_FAILURE;
-            goto cleanup_yaml;  
-        }        
+            goto cleanup_yaml;
+        }
     }
 
 cleanup_yaml:
     /* Free the data */
-	cyaml_free(&config, &blocklist_dsts_schema, ips, 0);
+    cyaml_free(&config, &blocklist_dsts_schema, ips, 0);
 
     return ret;
 }
@@ -151,8 +153,7 @@ void poll_stats(struct drop_ip_bpf *skel) {
 
         if (sum[1] > prev[1]) {
             bit_rate = (((sum[1] - prev[1]) / 1.0) * 8) / ONE_BILLION;
-            log_info("%10llu byte/s (%.2f Gbps)", (sum[1] - prev[1]) / 1,
-                     bit_rate);
+            log_info("%10llu byte/s (%.2f Gbps)", (sum[1] - prev[1]) / 1, bit_rate);
         }
 
         prev[0] = sum[0];
@@ -171,15 +172,20 @@ int main(int argc, const char **argv) {
     struct argparse_option options[] = {
         OPT_HELP(),
         OPT_GROUP("Basic options"),
-        OPT_STRING('c', "config", &config_file, "Path to the YAML configuration file", NULL, 0, 0),
-        OPT_STRING('i', "iface", &iface, "Interface where to attach the BPF program", NULL, 0, 0),
+        OPT_STRING('c', "config", &config_file, "Path to the YAML configuration file",
+                   NULL, 0, 0),
+        OPT_STRING('i', "iface", &iface, "Interface where to attach the BPF program",
+                   NULL, 0, 0),
         OPT_END(),
     };
 
     struct argparse argparse;
     argparse_init(&argparse, options, usages, 0);
-    argparse_describe(&argparse, "\nThis software attaches an XDP program to the interface specified in the input parameter", 
-    "\nThe '-i' argument is used to specify the interface where to attach the program");
+    argparse_describe(&argparse,
+                      "\nThis software attaches an XDP program to the interface "
+                      "specified in the input parameter",
+                      "\nThe '-i' argument is used to specify the interface where to "
+                      "attach the program");
     argc = argparse_parse(&argparse, argc, argv);
 
     if (config_file == NULL) {

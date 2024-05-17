@@ -44,7 +44,7 @@ BPF_LOG_LEVEL ?= 0
 
 BPF_CFLAGS ?= -DBPF_LOG_LEVEL=$(BPF_LOG_LEVEL)
 
-APPS = tc_fib_lookup
+APPS = sk_skb_filter
 
 ALL_LDFLAGS += -lrt -ldl -lpthread -lm $(LIBCYAML_OBJ) -lyaml
 
@@ -151,7 +151,6 @@ $(APPS): %: $(LIBCYAML_OBJ) $(OUTPUT)/%.o $(LIBBPF_OBJ) $(LIBCYAML_OBJ) $(LIBARG
 format:
 	clang-format -style=file -i *.c 
 	clang-format -style=file -i ebpf/*.c ebpf/*.h
-	clang-format -style=file -i ebpf/solution/*.c
 	@grep -n "TODO" *.[ch] || true
 
 # delete failed targets

@@ -52,14 +52,18 @@ int main(int argc, const char **argv) {
     struct argparse_option options[] = {
         OPT_HELP(),
         OPT_GROUP("Basic options"),
-        OPT_STRING('i', "iface", &iface1, "Interface where to attach the BPF program", NULL, 0, 0),
+        OPT_STRING('i', "iface", &iface1, "Interface where to attach the BPF program",
+                   NULL, 0, 0),
         OPT_END(),
     };
 
     struct argparse argparse;
     argparse_init(&argparse, options, usages, 0);
-    argparse_describe(&argparse, "\n[Exercise 1] This software attaches an XDP program to the interface specified in the input parameter", 
-    "\nIf '-p' argument is specified, the interface will be put in promiscuous mode");
+    argparse_describe(&argparse,
+                      "\n[Exercise 1] This software attaches an XDP program to the "
+                      "interface specified in the input parameter",
+                      "\nIf '-p' argument is specified, the interface will be put in "
+                      "promiscuous mode");
     argc = argparse_parse(&argparse, argc, argv);
 
     if (iface1 != NULL) {
@@ -72,7 +76,8 @@ int main(int argc, const char **argv) {
             log_info("Got ifindex for iface: %s, which is %d", iface1, ifindex_iface1);
         }
     } else {
-        log_error("Error, you must specify the interface where to attach the XDP program");
+        log_error(
+            "Error, you must specify the interface where to attach the XDP program");
         exit(1);
     }
 
@@ -97,7 +102,8 @@ int main(int argc, const char **argv) {
     xdp_flags |= XDP_FLAGS_UPDATE_IF_NOEXIST;
 
     /* Attach the XDP program to the interface */
-    err = bpf_xdp_attach(ifindex_iface1, bpf_program__fd(skel->progs.xdp_pass_func), xdp_flags, NULL);
+    err = bpf_xdp_attach(ifindex_iface1, bpf_program__fd(skel->progs.xdp_pass_func),
+                         xdp_flags, NULL);
 
     if (err) {
         log_fatal("Error while attaching XDP program to the interface");

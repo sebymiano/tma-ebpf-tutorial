@@ -65,7 +65,9 @@ static int create_bpf_tc_hook(struct bpf_tc_hook *tc_hook, int ifindex) {
     return 0;
 }
 
-static int attach_bpf_tc_hook(struct bpf_tc_hook *tc_hook, enum bpf_tc_attach_point xgress, const struct bpf_program *prog, int priority) {
+static int attach_bpf_tc_hook(struct bpf_tc_hook *tc_hook,
+                              enum bpf_tc_attach_point xgress,
+                              const struct bpf_program *prog, int priority) {
     int err;
     LIBBPF_OPTS(bpf_tc_opts, tc_attach);
     char ifname[16];
@@ -77,9 +79,9 @@ static int attach_bpf_tc_hook(struct bpf_tc_hook *tc_hook, enum bpf_tc_attach_po
     err = bpf_tc_attach(tc_hook, NULL);
     if (err) {
         log_fatal("filter add dev %s %s prio %d bpf da %s",
-		 if_indextoname(tc_hook->ifindex, ifname) ? : "<unknown_iface>",
-		 xgress == BPF_TC_INGRESS ? "ingress" : "egress",
-		 priority, bpf_program__name(prog));
+                  if_indextoname(tc_hook->ifindex, ifname) ?: "<unknown_iface>",
+                  xgress == BPF_TC_INGRESS ? "ingress" : "egress", priority,
+                  bpf_program__name(prog));
         return err;
     }
 
@@ -101,15 +103,20 @@ int main(int argc, const char **argv) {
     struct argparse_option options[] = {
         OPT_HELP(),
         OPT_GROUP("Basic options"),
-        OPT_STRING('1', "src", &iface_src, "Source interface where to attach the BPF program", NULL, 0, 0),
-        OPT_STRING('2', "dst", &iface_dst, "Destination interface where to attach the BPF program", NULL, 0, 0),
+        OPT_STRING('1', "src", &iface_src,
+                   "Source interface where to attach the BPF program", NULL, 0, 0),
+        OPT_STRING('2', "dst", &iface_dst,
+                   "Destination interface where to attach the BPF program", NULL, 0, 0),
         OPT_END(),
     };
 
     struct argparse argparse;
     argparse_init(&argparse, options, usages, 0);
-    argparse_describe(&argparse, "\nThis software attaches an XDP program to the interface specified in the input parameter", 
-    "\nThe '-i' argument is used to specify the interface where to attach the program");
+    argparse_describe(&argparse,
+                      "\nThis software attaches an XDP program to the interface "
+                      "specified in the input parameter",
+                      "\nThe '-i' argument is used to specify the interface where to "
+                      "attach the program");
     argc = argparse_parse(&argparse, argc, argv);
 
     libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
@@ -153,7 +160,7 @@ int main(int argc, const char **argv) {
         fprintf(stderr, "Failed to create source TC hook: %d\n", err);
         goto cleanup;
     }
-    
+
     err = create_bpf_tc_hook(&dst_tc_hook, ifindex_dst);
     if (!err)
         dst_hook_created = true;
@@ -163,7 +170,8 @@ int main(int argc, const char **argv) {
     }
 
     /* Attach the BPF program to the source TC hook */
-    err = attach_bpf_tc_hook(&src_tc_hook, BPF_TC_INGRESS, skel->progs.tc_fib_lookup, 0);
+    err =
+        attach_bpf_tc_hook(&src_tc_hook, BPF_TC_INGRESS, skel->progs.tc_fib_lookup, 0);
     if (err) {
         fprintf(stderr, "Failed to attach tc_fib_lookup to source TC hook: %d\n", err);
         goto cleanup;
@@ -176,9 +184,11 @@ int main(int argc, const char **argv) {
     }
 
     /* Attach the BPF programs to the destination TC hook */
-    err = attach_bpf_tc_hook(&dst_tc_hook, BPF_TC_INGRESS, skel->progs.tc_fib_lookup, 0);
+    err =
+        attach_bpf_tc_hook(&dst_tc_hook, BPF_TC_INGRESS, skel->progs.tc_fib_lookup, 0);
     if (err) {
-        fprintf(stderr, "Failed to attach tc_fib_lookup to destination TC hook: %d\n", err);
+        fprintf(stderr, "Failed to attach tc_fib_lookup to destination TC hook: %d\n",
+                err);
         goto cleanup;
     }
 

@@ -55,11 +55,11 @@ void sigint_handler(int sig_no) {
 void poll_stats(struct simple_drop_bpf *skel) {
     /* TODO 1: get the map file descriptor for the skeleton */
 
-    while(true) {
+    while (true) {
         /* TODO 2: define the value type (struct datarec) */
-        
+
         /* TODO 4: get the value of the map for the key 0 */
-        
+
         /* TODO 5: print the number of packets received */
         /* TODO 6: print the number of bytes received */
         sleep(1);
@@ -74,14 +74,18 @@ int main(int argc, const char **argv) {
     struct argparse_option options[] = {
         OPT_HELP(),
         OPT_GROUP("Basic options"),
-        OPT_STRING('i', "iface", &iface, "Interface where to attach the BPF program", NULL, 0, 0),
+        OPT_STRING('i', "iface", &iface, "Interface where to attach the BPF program",
+                   NULL, 0, 0),
         OPT_END(),
     };
 
     struct argparse argparse;
     argparse_init(&argparse, options, usages, 0);
-    argparse_describe(&argparse, "\n[Exercise 1] This software attaches an XDP program to the interface specified in the input parameter", 
-    "\nIf '-p' argument is specified, the interface will be put in promiscuous mode");
+    argparse_describe(&argparse,
+                      "\n[Exercise 1] This software attaches an XDP program to the "
+                      "interface specified in the input parameter",
+                      "\nIf '-p' argument is specified, the interface will be put in "
+                      "promiscuous mode");
     argc = argparse_parse(&argparse, argc, argv);
 
     if (iface != NULL) {
@@ -94,7 +98,8 @@ int main(int argc, const char **argv) {
             log_info("Got ifindex for iface: %s, which is %d", iface, ifindex_iface);
         }
     } else {
-        log_error("Error, you must specify the interface where to attach the XDP program");
+        log_error(
+            "Error, you must specify the interface where to attach the XDP program");
         exit(1);
     }
 
@@ -132,7 +137,8 @@ int main(int argc, const char **argv) {
     xdp_flags |= XDP_FLAGS_DRV_MODE;
 
     /* Attach the XDP program to the interface */
-    err = bpf_xdp_attach(ifindex_iface, bpf_program__fd(skel->progs.xdp_prog_map), xdp_flags, NULL);
+    err = bpf_xdp_attach(ifindex_iface, bpf_program__fd(skel->progs.xdp_prog_map),
+                         xdp_flags, NULL);
 
     if (err) {
         log_fatal("Error while attaching the XDP program to the interface");
