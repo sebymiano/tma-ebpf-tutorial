@@ -41,6 +41,36 @@ static __always_inline bool _pull_and_validate_data(struct __sk_buff *skb, void 
     return true;
 }
 
+static inline int add_msg_to_packet(struct __sk_buff *skb, int offset)
+{
+	int err = bpf_skb_pull_data(skb, msg_to_add_size + offset);
+	void *data_end;
+	char *c;
+
+	if (err)
+		return 1;
+
+	c = (char *)(long)skb->data;
+	data_end = (void *)(long)skb->data_end;
+
+	if ((void *)c + msg_to_add_size + offset < data_end) {
+        for (int i = 0; i < offset; i++) {
+            c[i] = msg_to_compare[i];
+        }
+
+        for (int i = 0; i < msg_to_add_size; i++) {
+            c[i + offset] = msg_to_add[i];
+        }
+        bpf_log_debug("Message added to packet: %s", c);
+    } else {
+        bpf_log_err("Data is too big to fit in buffer. Required: %d bytes, available: %ld",
+                    msg_to_add_size + offset, data_end - (void *)c);
+        return 1;
+    }
+
+    return 0;
+}
+
 SEC("sk_skb")
 int bpf_sk_skb_filter(struct __sk_buff *skb) {
     void *data_end = (void *)(long)skb->data_end;
@@ -73,7 +103,30 @@ int bpf_sk_skb_filter(struct __sk_buff *skb) {
     int ret = bpf_strncmp(buf, msg_to_compare_size, msg_to_compare);
     if (ret == 0) {
         bpf_log_debug("Packet contains %s", msg_to_compare);
-        return SK_DROP;
+
+        /* Now, we should:
+         * 1. Increase the size of the packet with the bpf_skb_adjust_room helper
+         * 2. Add the message to the packet
+        */
+
+        /* Docs bpf_skb_adjust_room:
+         *
+         * https://ebpf-docs.dylanreimerink.nl/linux/helper-function/bpf_skb_adjust_room/
+         * This helper function can be used to adjust the size of the packet buffer.
+         */
+        int err = bpf_skb_adjust_room(skb, msg_to_add_size, BPF_ADJ_ROOM_NET, 0);
+        if (err) {
+            bpf_log_err("Error while adjusting room: %d", err);
+            return SK_DROP;
+        }
+
+        err = add_msg_to_packet(skb, msg_to_compare_size);
+        if (err) {
+            bpf_log_err("Error while adding message to packet: %d", err);
+            return SK_DROP;
+        }
+
+        return SK_PASS;
     } else {
         bpf_log_debug("Packet does not contain %s", msg_to_compare);
         bpf_log_debug("Got: %s", buf);
