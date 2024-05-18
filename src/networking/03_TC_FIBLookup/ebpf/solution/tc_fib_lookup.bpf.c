@@ -117,4 +117,4 @@ int tc_chk(struct __sk_buff *ctx) {
     return !raw[0] && !raw[1] && !raw[2] ? TC_ACT_SHOT : TC_ACT_OK;
 }
 
-char __license[] SEC("license") = "GPL";
+char LICENSE[] SEC("license") = "Dual BSD/GPL";

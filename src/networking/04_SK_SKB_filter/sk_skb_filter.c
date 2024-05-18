@@ -1,104 +1,232 @@
-#include <vmlinux.h>
-#include <bpf/bpf_endian.h>
-#include <bpf/bpf_helpers.h>
-#include <bpf/bpf_tracing.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/resource.h>
+#include <bpf/bpf.h>
+#include <bpf/btf.h>
+#include <bpf/libbpf.h>
+#include <fcntl.h>
+#include <assert.h>
+#include <linux/if_link.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
-#include "bpf_log.h"
+#ifndef __USE_POSIX
+#define __USE_POSIX
+#endif
+#include <signal.h>
 
-struct {
-    __uint(type, BPF_MAP_TYPE_SOCKMAP);
-    __uint(max_entries, 20);
-    __uint(key_size, sizeof(int));
-    __uint(value_size, sizeof(int));
-} sock_map SEC(".maps");
+#include <argparse.h>
+#include <net/if.h>
 
-static __always_inline bool _pull_and_validate_data(struct __sk_buff *skb, void **data_,
-                                                    void **data_end_, uint16_t size) {
+#include "sk_skb_filter.skel.h"
+#include "log.h"
+
+#define DEFAULT_LPORT 10000
+#define MAX_MSG_SIZE 50
+
+#define DEFAULT_MSG_TO_COMPARE "Hello world"
+#define DEFAULT_MSG_TO_ADD " from eBPF socket filter"
+
+static volatile sig_atomic_t exiting = 0;
+
+static void sig_int(int signo) {
+    exiting = 1;
+}
+
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
+                           va_list args) {
+    return vfprintf(stderr, format, args);
+}
+
+static void bump_memlock_rlimit(void) {
+    struct rlimit rlim_new = {
+        .rlim_cur = RLIM_INFINITY,
+        .rlim_max = RLIM_INFINITY,
+    };
+
+    if (setrlimit(RLIMIT_MEMLOCK, &rlim_new)) {
+        fprintf(stderr, "Failed to increase RLIMIT_MEMLOCK limit!\n");
+        exit(1);
+    }
+}
+
+static const char *const usages[] = {
+    "sk_skb_filter [options] [[--] args]",
+    "sk_skb_filter [options]",
+    NULL,
+};
+
+int main(int argc, const char **argv) {
+    const char *ebpf_msg = NULL;
+    const char *ebpf_msg_to_compare = NULL;
+    int port = DEFAULT_LPORT;
     int err;
-    void *data, *data_end;
-    bpf_skb_pull_data(skb, size);
+    struct sk_skb_filter_bpf *skel;
+    char final_ebpf_msg_to_add[MAX_MSG_SIZE];
+    char final_ebpf_msg_to_compare[MAX_MSG_SIZE];
+    // bool cgroup_attached = false;
+    bool verdict_attached = false;
 
-    data_end = (void *)(long)skb->data_end;
-    data = (void *)(long)skb->data;
+    struct argparse_option options[] = {
+        OPT_HELP(),
+        OPT_GROUP("Basic options"),
+        OPT_STRING('m', "message", &ebpf_msg, "Message to add from the eBPF program",
+                   NULL, 0, 0),
+        OPT_STRING('c', "msg_compare", &ebpf_msg_to_compare,
+                   "Message to compare from the eBPF program", NULL, 0, 0),
+        OPT_INTEGER('p', "port", &port, "Port to filter", NULL, 0, 0),
+        OPT_END(),
+    };
 
-    if (data + size > data_end) {
-        bpf_log_err("Unable to pull %d data from skb\n", size);
-        return false;
-    }
+    struct argparse argparse;
+    argparse_init(&argparse, options, usages, 0);
+    argparse_describe(&argparse,
+                      "\nThis software attaches an XDP program to the interface "
+                      "specified in the input parameter",
+                      "\nThe '-i' argument is used to specify the interface where to "
+                      "attach the program");
+    argc = argparse_parse(&argparse, argc, argv);
 
-    *data_end_ = (void *)(long)skb->data_end;
-    *data_ = (void *)(long)skb->data;
+    /* Bump RLIMIT_MEMLOCK to allow BPF sub-system to do anything */
+    bump_memlock_rlimit();
 
-    return true;
-}
+    // libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
 
-const char *msg = "Hello world";
-const char *msg2 = " from eBPF socket filter";
+    /* Set up libbpf errors and debug info callback */
+    libbpf_set_print(libbpf_print_fn);
 
-SEC("sk_skb")
-int bpf_sk_skb_filter(struct __sk_buff *skb) {
-    void *data_end = (void *)(long)skb->data_end;
-    void *data = (void *)(long)skb->data;
-    __u32 lport = skb->local_port;
-
-    if (lport != 10000)
-        return SK_PASS;
-
-    if (!_pull_and_validate_data(skb, &data, &data_end, skb->len)) {
-        bpf_log_err("Unable to pull data from skb");
-        return SK_DROP;
-    }
-
-    char *buf = data;
-
-    int ret = bpf_strncmp(buf, sizeof(msg), msg);
-    if (ret == 0) {
-        bpf_log_debug("Packet contains %s", msg);
-        return SK_DROP;
-    }
-
-    return SK_PASS;
-}
-
-SEC("sockops")
-int bpf_sockops(struct bpf_sock_ops *skops) {
-    __u32 lport, rport;
-    int op, err = 0, index, key, ret;
-
-    op = (int)skops->op;
-
-    int key = 0;
-    /*
-     * args[0]: old_state
-     * args[1]: new_state
-     */
-    if (op == BPF_SOCK_OPS_STATE_CB && skops->args[1] == BPF_TCP_CLOSE) {
-        if (skops->local_port == 10000) {
-            bpf_log_debug("Socket closed. Delete sockmap entry at key: %d", key);
-            bpf_map_delete_elem(&sock_map, &key);
+    if (port != 0) {
+        if (port < 1 || port > 65535) {
+            log_fatal("Invalid port number %d", port);
+            exit(1);
         }
-        return 0;
+    } else {
+        port = DEFAULT_LPORT;
     }
 
-    if (op == BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB) {
-        /* This is used for incoming connections
-         * The program is invoked with this op when a active socket transitioned to have
-         * an established connection. This happens when a incoming connection
-         * establishes. This is just a notification, return value is discarded.
-         *
-         * https://ebpf-docs.dylanreimerink.nl/linux/program-type/BPF_PROG_TYPE_SOCK_OPS/
-         */
-        bpf_log_debug("New socket added with IP src: %u, IP dst: %u", skops->local_ip4,
-                      skops->remote_ip4);
-        bpf_log_debug("New socket added with TCP src port: %u, TCP dst port: %u",
-                      skops->local_port, bpf_ntohl(skops->remote_port));
+    log_info("Filtering on port %d", port);
 
-        if (skops->local_port == 10000) {
-            bpf_sock_ops_cb_flags_set(skops, skops->bpf_sock_ops_cb_flags |
-                                                 BPF_SOCK_OPS_STATE_CB_FLAG);
-            bpf_sock_map_update(skops, &sock_map, &key, BPF_ANY);
+    if (ebpf_msg_to_compare != NULL) {
+        if (strlen(ebpf_msg_to_compare) > MAX_MSG_SIZE) {
+            log_fatal("Message too long, max size is %d", MAX_MSG_SIZE);
+            exit(1);
         }
+        snprintf(final_ebpf_msg_to_compare, MAX_MSG_SIZE, "%s", ebpf_msg_to_compare);
+        log_info("Message to compare from eBPF: %s", final_ebpf_msg_to_compare);
+    } else {
+        // Write default message on the final_ebpf_msg_to_compare string
+        snprintf(final_ebpf_msg_to_compare, MAX_MSG_SIZE, DEFAULT_MSG_TO_COMPARE);
+        log_info("No message to compare from eBPF, using default message: %s",
+                 final_ebpf_msg_to_compare);
     }
 
-    return 0;
+    if (ebpf_msg != NULL) {
+        if (strlen(ebpf_msg) > MAX_MSG_SIZE) {
+            log_fatal("Message too long, max size is %d", MAX_MSG_SIZE);
+            exit(1);
+        }
+        snprintf(final_ebpf_msg_to_add, MAX_MSG_SIZE, "%s", ebpf_msg);
+        log_info("Append message from eBPF: %s", final_ebpf_msg_to_add);
+    } else {
+        // Write default message on the final_ebpf_msg string
+        snprintf(final_ebpf_msg_to_add, MAX_MSG_SIZE, DEFAULT_MSG_TO_ADD);
+        log_info("No message from eBPF, using default message: %s",
+                 final_ebpf_msg_to_add);
+    }
+
+    skel = sk_skb_filter_bpf__open();
+    if (!skel) {
+        log_error("Failed to open BPF skeleton");
+        exit(1);
+    }
+
+    strncpy(skel->rodata->msg_to_add, final_ebpf_msg_to_add, MAX_MSG_SIZE);
+    skel->rodata->msg_to_add_size = strlen(final_ebpf_msg_to_add);
+    strncpy(skel->rodata->msg_to_compare, final_ebpf_msg_to_compare, MAX_MSG_SIZE);
+    skel->rodata->msg_to_compare_size = strlen(final_ebpf_msg_to_compare);
+    skel->rodata->local_port_to_filter = port;
+
+    err = sk_skb_filter_bpf__load(skel);
+    if (err) {
+        log_error("Failed to load and verify BPF skeleton");
+        exit(1);
+    }
+
+    int cg_fd = open("/sys/fs/cgroup/unified/", __O_DIRECTORY, O_RDONLY);
+    if (cg_fd < 0) {
+        log_error("failed to open cgroup: %s", strerror(errno));
+        exit(1);
+    }
+
+    bpf_program__set_expected_attach_type(skel->progs.bpf_sockops, BPF_CGROUP_SOCK_OPS);
+    skel->links.bpf_sockops =
+        bpf_program__attach_cgroup(skel->progs.bpf_sockops, cg_fd);
+    if (skel->links.bpf_sockops == NULL) {
+        log_error("Failed to attach sockops:  %s", strerror(errno));
+        exit(1);
+    }
+    /* Use bpf_link, which is the new way to attach BPF programs */
+    /* Below, is the OLD way */
+    // err = bpf_prog_attach(bpf_program__fd(skel->progs.bpf_sockops), cg_fd,
+    //                       BPF_CGROUP_SOCK_OPS, 0);
+    // if (err < 0) {
+    //     log_error("Failed to attach sockops: %s", strerror(errno));
+    //     exit(1);
+    // }
+    // cgroup_attached = true;
+
+    int sockmap_fd = bpf_map__fd(skel->maps.sock_map);
+    if (sockmap_fd < 0) {
+        log_error("Failed to get sockmap fd: %s", strerror(errno));
+        goto cleanup;
+    }
+
+    /* Use bpf_link, which is the new way to attach BPF programs */
+    /* This requires a new kernel */
+    // bpf_program__set_expected_attach_type(skel->progs.bpf_sk_skb_filter,
+    // BPF_SK_SKB_VERDICT); skel->links.bpf_sk_skb_filter =
+    // bpf_program__attach_sockmap(skel->progs.bpf_sk_skb_filter, sockmap_fd); if
+    // (skel->links.bpf_sk_skb_filter == NULL) {
+    //     log_error("Failed to attach sk_skb_filter: %s", strerror(errno));
+    //     goto cleanup;
+    // }
+
+    /* Use bpf_link, which is the new way to attach BPF programs */
+    /* Below, is the OLD way */
+
+    err = bpf_prog_attach(bpf_program__fd(skel->progs.bpf_sk_skb_filter), sockmap_fd,
+                          BPF_SK_SKB_VERDICT, 0);
+    if (err < 0) {
+        log_error("Failed to attach sk_skb_filter: %s", strerror(errno));
+        goto cleanup;
+    }
+    verdict_attached = true;
+
+    if (signal(SIGINT, sig_int) == SIG_ERR) {
+        err = errno;
+        fprintf(stderr, "Can't set signal handler: %s\n", strerror(errno));
+        goto cleanup;
+    }
+
+    printf("Successfully started! Please run `sudo cat "
+           "/sys/kernel/debug/tracing/trace_pipe` "
+           "to see output of the BPF program.\n");
+
+    while (!exiting) {
+        fprintf(stderr, ".");
+        sleep(5);
+    }
+
+cleanup:
+    /* If we use BPF links, we do not need to manually detach */
+    // if (cgroup_attached)
+    //     bpf_prog_detach2(bpf_program__fd(skel->progs.bpf_sockops), cg_fd,
+    //     BPF_CGROUP_SOCK_OPS);
+    log_debug("Detachig programs");
+    if (verdict_attached)
+        bpf_prog_detach2(bpf_program__fd(skel->progs.bpf_sk_skb_filter), sockmap_fd,
+                         BPF_SK_SKB_VERDICT);
+    sk_skb_filter_bpf__destroy(skel);
+    return -err;
 }
