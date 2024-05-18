@@ -15,7 +15,7 @@
 #define TC_ACT_SHOT 2
 
 SEC("tc")
-int tc_ingress(struct __sk_buff *ctx) {
+int tc_fib_lookup(struct __sk_buff *ctx) {
     void *data_end = (void *)(__u64)ctx->data_end;
     void *data = (void *)(__u64)ctx->data;
     struct ethhdr *l2;
@@ -94,9 +94,14 @@ int tc_ingress(struct __sk_buff *ctx) {
     } else if (ret == BPF_FIB_LKUP_RET_SUCCESS) {
         bpf_log_info("FIB lookup success, redirecting packet to ifindex: %d",
                      fib_params.ifindex);
+        void *data_end = (void *)(long)ctx->data_end;
+        struct ethhdr *eth = (void *)(long)ctx->data;
 
-        __builtin_memcpy(l2->h_dest, fib_params.dmac, ETH_ALEN);
-        __builtin_memcpy(l2->h_source, fib_params.smac, ETH_ALEN);
+        if ((void *)(eth + 1) > data_end)
+            return TC_ACT_SHOT;
+
+        __builtin_memcpy(eth->h_dest, fib_params.dmac, ETH_ALEN);
+        __builtin_memcpy(eth->h_source, fib_params.smac, ETH_ALEN);
 
         return bpf_redirect(fib_params.ifindex, 0);
     }

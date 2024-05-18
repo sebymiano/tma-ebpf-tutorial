@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # include helper.bash file: used to provide some common function across testing scripts
-source "${BASH_SOURCE%/*}/../../libs/helpers.bash"
+source "${BASH_SOURCE%/*}/../../../libs/helpers.bash"
 
 # function cleanup: is invoked each time script exit (with or without errors)
 function cleanup {

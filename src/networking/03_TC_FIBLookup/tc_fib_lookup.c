@@ -42,8 +42,8 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
 
 static int get_iface_ifindex(const char *iface) {
     if (iface == NULL) {
-        log_warn("No interface specified, using default one (veth1)");
-        iface = "veth1";
+        log_warn("No interface specified");
+        return -1;
     }
 
     log_info("TC program will be attached to %s interface", iface);
@@ -54,10 +54,9 @@ static int create_bpf_tc_hook(struct bpf_tc_hook *tc_hook, int ifindex) {
     int err;
 
     tc_hook->ifindex = ifindex;
-
+    tc_hook->attach_point = BPF_TC_INGRESS | BPF_TC_EGRESS;
     err = bpf_tc_hook_create(tc_hook);
     if (err) {
-        log_fatal("Failed to create TC hook: %s", strerror(-err));
         return err;
     }
 
@@ -74,8 +73,9 @@ static int attach_bpf_tc_hook(struct bpf_tc_hook *tc_hook,
     tc_hook->attach_point = xgress;
     tc_attach.prog_fd = bpf_program__fd(prog);
     tc_attach.priority = priority;
+    tc_attach.handle = 1;
 
-    err = bpf_tc_attach(tc_hook, NULL);
+    err = bpf_tc_attach(tc_hook, &tc_attach);
     if (err) {
         log_fatal("filter add dev %s %s prio %d bpf da %s",
                   if_indextoname(tc_hook->ifindex, ifname) ?: "<unknown_iface>",
@@ -87,7 +87,24 @@ static int attach_bpf_tc_hook(struct bpf_tc_hook *tc_hook,
     return 0;
 }
 
-// https://github.com/torvalds/linux/blob/ff2632d7d08edc11e8bd0629e9fcfebab25c78b4/tools/testing/selftests/bpf/prog_tests/tc_redirect.c#L988
+static int detach_bpf_tc_hook(struct bpf_tc_hook *tc_hook,
+                              enum bpf_tc_attach_point xgress, int priority) {
+    int err;
+    LIBBPF_OPTS(bpf_tc_opts, tc_detach);
+
+    tc_hook->attach_point = xgress;
+    tc_detach.flags = tc_detach.prog_fd = tc_detach.prog_id = 0;
+    tc_detach.priority = priority;
+    tc_detach.handle = 1;
+
+    err = bpf_tc_detach(tc_hook, &tc_detach);
+    if (err) {
+        log_fatal("Error while detaching filter");
+        return err;
+    }
+
+    return 0;
+}
 
 int main(int argc, const char **argv) {
     const char *iface_src = NULL;
@@ -156,7 +173,7 @@ int main(int argc, const char **argv) {
     if (!err)
         src_hook_created = true;
     if (err && err != -EEXIST) {
-        fprintf(stderr, "Failed to create source TC hook: %d\n", err);
+        log_fatal("Failed to create source TC hook: %s", strerror(-err));
         goto cleanup;
     }
 
@@ -164,67 +181,80 @@ int main(int argc, const char **argv) {
     if (!err)
         dst_hook_created = true;
     if (err && err != -EEXIST) {
-        fprintf(stderr, "Failed to create destination TC hook: %d\n", err);
+        log_fatal("Failed to create destination TC hook: %s", strerror(-err));
         goto cleanup;
     }
 
     /* Attach the BPF program to the source TC hook */
     err =
-        attach_bpf_tc_hook(&src_tc_hook, BPF_TC_INGRESS, skel->progs.tc_fib_lookup, 0);
+        attach_bpf_tc_hook(&src_tc_hook, BPF_TC_INGRESS, skel->progs.tc_fib_lookup, 1);
     if (err) {
-        fprintf(stderr, "Failed to attach tc_fib_lookup to source TC hook: %d\n", err);
+        log_fatal("Failed to attach tc_fib_lookup to source TC hook: %s",
+                  strerror(-err));
         goto cleanup;
     }
 
-    err = attach_bpf_tc_hook(&src_tc_hook, BPF_TC_EGRESS, skel->progs.tc_chk, 0);
+    err = attach_bpf_tc_hook(&src_tc_hook, BPF_TC_EGRESS, skel->progs.tc_chk, 1);
     if (err) {
-        fprintf(stderr, "Failed to attach tc_chk to source TC hook: %d\n", err);
+        log_fatal("Failed to attach tc_chk to source TC hook: %s", strerror(-err));
         goto cleanup;
     }
 
     /* Attach the BPF programs to the destination TC hook */
     err =
-        attach_bpf_tc_hook(&dst_tc_hook, BPF_TC_INGRESS, skel->progs.tc_fib_lookup, 0);
+        attach_bpf_tc_hook(&dst_tc_hook, BPF_TC_INGRESS, skel->progs.tc_fib_lookup, 1);
     if (err) {
-        fprintf(stderr, "Failed to attach tc_fib_lookup to destination TC hook: %d\n",
-                err);
+        log_fatal("Failed to attach tc_fib_lookup to destination TC hook: %s",
+                  strerror(-err));
         goto cleanup;
     }
 
-    err = attach_bpf_tc_hook(&dst_tc_hook, BPF_TC_EGRESS, skel->progs.tc_chk, 0);
+    err = attach_bpf_tc_hook(&dst_tc_hook, BPF_TC_EGRESS, skel->progs.tc_chk, 1);
     if (err) {
-        fprintf(stderr, "Failed to attach tc_chk to destination TC hook: %d\n", err);
+        log_fatal("Failed to attach tc_chk to destination TC hook: %s", strerror(-err));
         goto cleanup;
     }
 
     if (signal(SIGINT, sig_int) == SIG_ERR) {
         err = errno;
-        fprintf(stderr, "Can't set signal handler: %s\n", strerror(errno));
+        log_fatal("Failed to set signal handler: %s", strerror(err));
         goto cleanup;
     }
 
-    printf("Successfully started! Please run `sudo cat "
-           "/sys/kernel/debug/tracing/trace_pipe` "
-           "to see output of the BPF program.\n");
+    log_info("Successfully started! Please run `sudo cat "
+             "/sys/kernel/debug/tracing/trace_pipe` "
+             "to see output of the BPF program.\n");
 
     while (!exiting) {
         fprintf(stderr, ".");
-        sleep(1);
+        sleep(5);
     }
 
-    LIBBPF_OPTS(bpf_tc_opts, tc_opts);
-    tc_opts.flags = tc_opts.prog_fd = tc_opts.prog_id = 0;
-    err = bpf_tc_detach(&src_tc_hook, &tc_opts);
+    log_info("\nExiting...\n");
+
+    /* Detach the BPF programs from the source TC hook */
+    err = detach_bpf_tc_hook(&src_tc_hook, BPF_TC_INGRESS, 1);
     if (err) {
-        fprintf(stderr, "Failed to detach source TC: %d\n", err);
-        goto cleanup;
+        log_fatal("Failed to detach tc_fib_lookup from source TC hook: %s",
+                  strerror(-err));
     }
 
-    tc_opts.flags = tc_opts.prog_fd = tc_opts.prog_id = 0;
-    err = bpf_tc_detach(&dst_tc_hook, &tc_opts);
+    err = detach_bpf_tc_hook(&src_tc_hook, BPF_TC_EGRESS, 1);
     if (err) {
-        fprintf(stderr, "Failed to detach destination TC: %d\n", err);
-        goto cleanup;
+        log_fatal("Failed to detach tc_chk from source TC hook: %s", strerror(-err));
+    }
+
+    /* Detach the BPF programs from the destination TC hook */
+    err = detach_bpf_tc_hook(&dst_tc_hook, BPF_TC_INGRESS, 1);
+    if (err) {
+        log_fatal("Failed to detach tc_fib_lookup from destination TC hook: %s",
+                  strerror(-err));
+    }
+
+    err = detach_bpf_tc_hook(&dst_tc_hook, BPF_TC_EGRESS, 1);
+    if (err) {
+        log_fatal("Failed to detach tc_chk from destination TC hook: %s",
+                  strerror(-err));
     }
 
 cleanup:

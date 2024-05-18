@@ -23,25 +23,56 @@ int tc_fib_lookup(struct __sk_buff *ctx) {
 
     __u8 zero[ETH_ALEN * 2];
 
-    /* TODO 1: Parse L2 and L3 headers */
+    if (ctx->protocol != bpf_htons(ETH_P_IP)) {
+        bpf_log_err("Not an IP packet: protocol: %d", ctx->protocol);
+        return TC_ACT_OK;
+    }
 
-    /* TODO 2: Let's perform a lookup into the kernel FIB */
+    l2 = data;
+    if ((void *)(l2 + 1) > data_end)
+        return TC_ACT_OK;
+
+    l3 = (struct iphdr *)(l2 + 1);
+    if ((void *)(l3 + 1) > data_end)
+        return TC_ACT_OK;
+
+    bpf_log_info("Got IP packet: tot_len: %d, ttl: %d", bpf_ntohs(l3->tot_len),
+                 l3->ttl);
+
+    /* Let's perform a lookup into the kernel FIB */
     /* More info here:
      * https://ebpf-docs.dylanreimerink.nl/linux/helper-function/bpf_fib_lookup/
      */
-    struct bpf_fib_lookup fib_params = {};
+    struct bpf_fib_lookup fib_params = {
+        .family = AF_INET,
+        .tos = l3->tos,
+        .l4_protocol = l3->protocol,
+        .sport = 0,
+        .dport = 0,
+        .tot_len = bpf_ntohs(l3->tot_len),
+        .ipv4_src = l3->saddr,
+        .ipv4_dst = l3->daddr,
+        .ifindex = ctx->ingress_ifindex,
+    };
 
     int ret = bpf_fib_lookup(ctx, &fib_params, sizeof(fib_params), 0);
     if (ret == BPF_FIB_LKUP_RET_NOT_FWDED || ret < 0) {
-        /* TODO 3: packet cannot be forwarded, continue processing and stop eBPF program
-         */
+        bpf_log_err("FIB lookup failed: %d", ret);
+        return TC_ACT_OK;
+    }
+
+    /* Let's zero out the src and dst MAC */
+    __builtin_memset(&zero, 0, sizeof(zero));
+    if (bpf_skb_store_bytes(ctx, 0, &zero, sizeof(zero), 0) < 0) {
+        bpf_log_err("Zero out MAC failed");
+        return TC_ACT_SHOT;
     }
 
     if (ret == BPF_FIB_LKUP_RET_NO_NEIGH) {
         bpf_log_info("No neighbor found");
         bpf_log_info("Redirecting packet to ifindex: %d", fib_params.ifindex);
 
-        /* TODO 4: Let's call the redirect with the neighbor lookup */
+        /* Let's call the redirect with the neighbor lookup */
         /* More info here:
          * https://ebpf-docs.dylanreimerink.nl/linux/helper-function/bpf_redirect_neigh/
          *
@@ -49,16 +80,30 @@ int tc_fib_lookup(struct __sk_buff *ctx) {
          * fill in L2 addresses from neighboring subsystem
          */
 
-        return TC_ACT_OK;
+        struct bpf_redir_neigh neigh_params = {.nh_family = fib_params.family,
+                                               .ipv4_nh = fib_params.ipv4_dst};
+
+        ret = bpf_redirect_neigh(fib_params.ifindex, &neigh_params,
+                                 sizeof(neigh_params), 0);
+        if (ret == TC_ACT_SHOT) {
+            bpf_log_err("Redirect neigh failed: %d", ret);
+            return TC_ACT_SHOT;
+        }
+
+        return ret; // TC_ACT_REDIRECT
     } else if (ret == BPF_FIB_LKUP_RET_SUCCESS) {
         bpf_log_info("FIB lookup success, redirecting packet to ifindex: %d",
                      fib_params.ifindex);
+        void *data_end = (void *)(long)ctx->data_end;
+        struct ethhdr *eth = (void *)(long)ctx->data;
 
-        /* TODO 5: Redirect the packet to another net device of index ifindex
-         * and fill in L2 addresses from the FIB lookup
-         */
+        if ((void *)(eth + 1) > data_end)
+            return TC_ACT_SHOT;
 
-        return TC_ACT_OK;
+        __builtin_memcpy(eth->h_dest, fib_params.dmac, ETH_ALEN);
+        __builtin_memcpy(eth->h_source, fib_params.smac, ETH_ALEN);
+
+        return bpf_redirect(fib_params.ifindex, 0);
     }
 
     bpf_log_err("FIB lookup returned unsupported value: %d", ret);
