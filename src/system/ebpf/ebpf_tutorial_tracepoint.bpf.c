@@ -16,9 +16,7 @@ int __always_inline compare_11_byte_strings(char *str1, const char str2[11]) {
 }
 
 SEC("tracepoint/syscalls/sys_enter_openat")
-int tracepoint__syscalls__sys_enter_openat(struct trace_event_raw_sys_enter *a
-rgs)
-{
+int tracepoint__syscalls__sys_enter_openat(struct trace_event_raw_sys_enter *args) {
     const char *filename = (const char *)args->args[1];
     char fname[256];
     const char ftoblock[11] = "/etc/passwd";
@@ -27,12 +25,12 @@ rgs)
 
     if (compare_11_byte_strings(fname, "/etc/passwd") == 0) {
         // print to /sys/kernel/debug/tracing/trace_pipe
-        bpf_printk("[!] PID %d tried to open /etc/passwd\n", bpf_get_current_pid_tgid() >> 32);
+        bpf_printk("[!] PID %d tried to open /etc/passwd\n",
+                   bpf_get_current_pid_tgid() >> 32);
 
-        bpf_probe_write_user((char*)args->args[1], "/dev/null", 10);
-        //bpf_send_signal(9);
+        bpf_probe_write_user((char *)args->args[1], "/dev/null", 10);
+        // bpf_send_signal(9);
     }
 
     return 0;
 }
-
