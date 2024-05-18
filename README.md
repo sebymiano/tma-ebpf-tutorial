@@ -9,9 +9,9 @@ Before starting the tutorial, please make sure to have the following requirement
 You can find the installation instructions in the [Installation](#installation) section.
 
 ## Installation
-To follow the tutorial, you can manually install the required dependencies or use the [provided VMs](#provided-vms).
+To follow the tutorial, you can [manually install](#manual-installation) the required dependencies or use the [provided VMs](#provided-vms).
 
-### Manual Installation
+### 1. Manual Installation
 To manually install the required dependencies, you need to have a Linux machine with a kernel version >= 5.15.
 All the commands are tested on Ubuntu 22.04.
 
@@ -23,7 +23,9 @@ $ sudo apt install -y git clang llvm llvm-dev libelf-dev linux-headers-generic b
 $ sudo apt install -y libbfd-dev libcap-dev libpcap-dev pkg-config net-tools
 ```
 
-### Provided VMs
+At this point, you can start building the tutorial, following the instructions in the [Build](#build) section.
+
+### 2. Provided VMs
 To make it easier for you to follow the tutorial, we provide two VMs with all the required dependencies installed.
 
 Depending on your machine's hardware architecture, the instructions and the VM you need to download will vary. 
