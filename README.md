@@ -34,7 +34,7 @@ We offer two distinct VMs tailored for x86\_64 and ARM64 architectures.
 #### Windows, Linux or MacOS with Intel/AMD CPU
 You can download the VirtualBox `nc-labs-x86.ova` image at the following URL:
 
-[`nc-labs-x86.ova`](https://polimi365-my.sharepoint.com/:f:/g/personal/10457521_polimi_it/Es0q0I2jbYtFtA3ep20xfPMB9NQNuquPC-idwO2wqrI9zA?e=lAljJt)
+[`nc-labs-x86.ova`](https://polimi365-my.sharepoint.com/:u:/g/personal/10457521_polimi_it/EUlmWu7qjuVJjpQKVTV1yOcBzhyXGdLe3ik2uWPfbhG83g?e=F6XCJx)
 
 Before deploying the VM, you must install `VirtualBox`, compatible with Windows, Linux, and macOS. 
 Download the VirtualBox binaries at the following URL:
@@ -46,7 +46,7 @@ Once installed, open the `nc-labs-x86.ova` file to boot the VM and access the la
 #### MacOS with Apple Silicon (ARM64) CPU
 You can download the VM `nc-labs-arm64.zip` image at the following URL:
 
-[`nc-labs-arm64.zip`](https://polimi365-my.sharepoint.com/:f:/g/personal/10457521_polimi_it/Es0q0I2jbYtFtA3ep20xfPMB9NQNuquPC-idwO2wqrI9zA?e=lAljJt)
+[`nc-labs-arm64.zip`](https://polimi365-my.sharepoint.com/:u:/g/personal/10457521_polimi_it/EcykVwiqYSdHpx_WlO8qDwIBajDGURzxskLnpTBH9SyOLA?e=PIR2mf)
 
 In this case, you need to install VMwareFusion, available at the following URL:
 
