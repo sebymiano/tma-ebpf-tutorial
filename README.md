@@ -20,7 +20,7 @@ You can install the required dependencies by running the following commands:
 ```bash
 $ sudo apt update
 $ sudo apt install -y git clang llvm llvm-dev libelf-dev linux-headers-generic build-essential libc6-dev-i386 make
-$ sudo apt install -y libbfd-dev libcap-dev libpcap-dev pkg-config net-tools
+$ sudo apt install -y libbfd-dev libcap-dev libpcap-dev pkg-config net-tools libyaml-dev
 ```
 
 At this point, you can start building the tutorial, following the instructions in the [Build](#build) section.
